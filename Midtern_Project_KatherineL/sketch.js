@@ -1,7 +1,10 @@
 let batteryLevel = 100;
 let chargingRate = 1;
-let drainingRate = 0.2;
-let entityX, entityY;
+let drainingRate = 0.01;
+let initialEntityX = 50; // Store initial X coordinate
+let initialEntityY = 200; // Store initial Y coordinate
+let entityX = initialEntityX; // Set initial X coordinate
+let entityY = initialEntityY; // Set initial Y coordinate
 let entities = [];
 const roomWidth = 200;
 const roomHeight = 400;
@@ -9,17 +12,19 @@ const livingRoomX = 200;
 const livingRoomWidth = 400;
 const livingRoomHeight = 400;
 const movementSpeed = 3;
+const collisionDelay = 60; // Number of frames to delay movement after collision
 let interacting = false;
 let interactionStartTime = 0;
 let charging = false;
+let runningToCharge = false;
+let dots = []; // Array to store the position of dots
+let batteryDecreased = false; // Flag to track if battery has been decreased
 
 function setup() {
   createCanvas(600, 400);
-  entityX = width / 2 - roomWidth / 2;
-  entityY = height / 2;
   
   // Create three entities in the living room
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 7; i++) {
     let x = random(livingRoomX, livingRoomX + livingRoomWidth - 20);
     let y = random(0, height - 20);
     entities.push(new Entity(x, y));
@@ -37,140 +42,153 @@ function draw() {
   // Draw entities
   for (let entity of entities) {
     entity.display();
+    entity.move();
+    // Check collision with red entity
+    if (entity.intersects(entityX, entityY)) {
+      interacting = true;
+      entity.stopMoving(); // Stop moving when colliding with the red entity
+      // Set position of dots above the blue entity
+      dots.push({x: entity.x + 5, y: entity.y - 10});
+      dots.push({x: entity.x + 15, y: entity.y - 10});
+      dots.push({x: entity.x + 25, y: entity.y - 10});
+
+      if (!batteryDecreased) {
+        batteryLevel -= 0.05;
+        batteryLevel = max(0, batteryLevel); // Ensure battery level doesn't go below 0
+        batteryDecreased = true; // Set the flag to true
+      }
+    } else {
+      // Reset the flag if no longer colliding
+      batteryDecreased = false;
+    }
   }
 
   // Draw player entity
   fill(255, 0, 0);
   rect(entityX, entityY, 20, 20);
+  
+
+  // Check collision with blue entities and set position of dots accordingly
+  for (let entity of entities) {
+    if (entity.intersects(entityX, entityY)) {
+      interacting = true;
+      // Set position of dots above the red entity
+      dots.push({x: entityX + 5, y: entityY - 10});
+      dots.push({x: entityX + 15, y: entityY - 10});
+      dots.push({x: entityX + 25, y: entityY - 10});
+    }
+  }
+
+  // Draw dots when interacting
+  if (interacting) {
+    fill(0); // Black color
+    for (let dot of dots) {
+      ellipse(dot.x, dot.y, 5, 5); // Draw tiny black dots
+    }
+    interacting = false; // Reset interacting flag
+    dots = []; // Clear the dots array
+  }
 
   // Draw battery indicator
   fill(0, 255, 0);
   rect(10, 10, batteryLevel * 2, 20);
-  
 
-  // Handle interaction
-  if (!interacting && entityX >= livingRoomX && entityX <= livingRoomX + livingRoomWidth) {
-    for (let entity of entities) {
-      if (dist(entityX, entityY, entity.x, entity.y) < 30) {
-        textSize(16);
-        fill(0);
-        text('Press "E" to interact', entityX - 50, entityY - 30);
-        if (keyIsDown(69)) { // Check if "E" key is pressed
-          interacting = true;
-          interactionStartTime = millis(); // Record the time when the interaction started
-          batteryLevel = max(0, batteryLevel - 10); // Decrease battery level upon interaction
-          entity.talk();
-        }
-      }
-    }
+  // Update battery level based on entity's location
+  if (entityX < livingRoomX) {
+    // Entity is in room 1, increase battery level
+    batteryLevel = min(100, batteryLevel + chargingRate);
+  } else {
+    // Entity is in the living room, decrease battery level
+    batteryLevel = max(0, batteryLevel - drainingRate);
   }
 
-  // Handle the duration of interaction
-  if (interacting) {
-    let elapsedTime = millis() - interactionStartTime;
-    if (elapsedTime > 2000) { // Adjust the duration here (2000 milliseconds = 2 seconds)
-      interacting = false;
-    }
+  // Handle running to charge
+  if (batteryLevel <= 0 && !charging && !runningToCharge) {
+    runningToCharge = true;
   }
 
   // Handle movement
-  if (!charging) {
-    if (batteryLevel <= 0) {
-      // Move towards the charging room
-      if (entityX < livingRoomX) {
-        entityX += movementSpeed;
-      } else if (entityX > livingRoomX) {
-        entityX -= movementSpeed;
-      }
-      if (entityY < height / 2) {
-        entityY += movementSpeed;
-      } else if (entityY > height / 2) {
-        entityY -= movementSpeed;
-      }
-      
-      // Check if entity has reached the charging room
-      if (entityX >= livingRoomX && entityX <= livingRoomX + livingRoomWidth && entityY >= height / 2) {
-        charging = true;
-      }
-    } else {
-      if (keyIsDown(LEFT_ARROW)) {
-        entityX -= movementSpeed;
-        entityX = constrain(entityX, 0, width - 20); // Allow entity to move freely in both rooms
-      }
-      if (keyIsDown(RIGHT_ARROW)) {
-        entityX += movementSpeed;
-        entityX = constrain(entityX, 0, width - 20); // Allow entity to move freely in both rooms
-      }
-      if (keyIsDown(UP_ARROW)) {
-        entityY -= movementSpeed;
-        entityY = constrain(entityY, 0, height - 20);
-      }
-      if (keyIsDown(DOWN_ARROW)) {
-        entityY += movementSpeed;
-        entityY = constrain(entityY, 0, height - 20);
-      }
+  if (!charging && !runningToCharge) {
+    // Allow arrow key movement only when not charging or running to charge
+    if (keyIsDown(LEFT_ARROW)) {
+      entityX -= movementSpeed;
     }
-  } else {
-    // Entity is charging
-    if (entityX < livingRoomX + livingRoomWidth / 2) {
+    if (keyIsDown(RIGHT_ARROW)) {
       entityX += movementSpeed;
-    } else {
-      charging = false;
-      batteryLevel = min(100, batteryLevel + chargingRate);
     }
+    if (keyIsDown(UP_ARROW)) {
+      entityY -= movementSpeed;
+    }
+    if (keyIsDown(DOWN_ARROW)) {
+      entityY += movementSpeed;
+    }
+  } else if (runningToCharge) {
+    // Entity is running back to charge
+    // Move towards (50, 200)
+    let deltaX = 50 - entityX;
+    let deltaY = 200 - entityY;
+    let distance = dist(entityX, entityY, 50, 200);
+    entityX += deltaX / distance * movementSpeed;
+    entityY += deltaY / distance * movementSpeed;
+    
+    // If reached (50, 200), stop running and start charging
+    if (distance < movementSpeed) {
+      runningToCharge = false;
+      charging = true;
+    
+    }
+
+  } 
+  // Handle recharging and enable movement when battery level reaches 100
+  if (charging && batteryLevel >= 100) {
+    charging = false; // Stop charging
+    runningToCharge = false; // Stop running to charge
   }
 
-  // Draw speech bubble
-  if (interacting) {
-    textSize(16);
-    fill(0);
-    text('Hello!', entityX - 20, entityY - 30);
-    text('Hi there!', entityX - 20, entityY - 50);
-  }
+  // Ensure entity stays at its initial position after reaching it
+  entityX = constrain(entityX, 0, width - 20);
+  entityY = constrain(entityY, 0, height - 20);
 }
 
 function Entity(x, y) {
   this.x = x;
   this.y = y;
+  this.speedX = random(-2, 2); // Random initial speed for movement
+  this.speedY = random(-2, 2);
+  this.movementDelay = 0; // Frames to delay movement after collision
 
   this.display = function() {
     fill(0, 0, 255);
     rect(this.x, this.y, 20, 20);
   };
 
-  this.talk = function() {
-    // Speech bubble for interaction
-    textSize(16);
-    fill(0);
-    text('Hello!', this.x - 20, this.y - 30);
-    text('Hi there!', entityX - 20, entityY - 50);
+  this.move = function() {
+    if (this.movementDelay > 0) {
+      this.movementDelay--; // Decrement the delay counter
+      return; // Exit move function without moving
+    }
+    this.x += this.speedX;
+    this.y += this.speedY;
+
+    // Bounce off walls
+    if (this.x < livingRoomX || this.x > livingRoomX + livingRoomWidth - 20) {
+      this.speedX *= -1;
+    }
+    if (this.y < 0 || this.y > height - 20) {
+      this.speedY *= -1;
+    }
   };
 
+  this.intersects = function(x, y) {
+    return (
+      x < this.x + 20 &&
+      x + 20 > this.x &&
+      y < this.y + 20 &&
+      y + 20 > this.y
+    );
+  };
 
-// Handle charging process
-if (!charging && batteryLevel <= 0 && entityX < livingRoomX) {
-  // If the battery is depleted and not already charging, and the entity is not in the living room, start charging process
-  charging = true;
-}
-
-// Handle charging process
-if (charging) {
-  // Move entity to the center of the charging room
-  if (entityX < livingRoomX + livingRoomWidth / 2) {
-    entityX += movementSpeed;
-  } else {
-    // Stop charging once in the center
-    charging = false;
-    // Increase battery level until it reaches maximum
-    batteryLevel = min(100, batteryLevel + chargingRate);
-  }
-}
-
-// Charge battery when entity is in the room
-if (entityX >= livingRoomX && entityX <= livingRoomX + livingRoomWidth) {
-  batteryLevel = min(100, batteryLevel + chargingRate);
-}
-
-
-  
+  this.stopMoving = function() {
+    this.movementDelay = collisionDelay; // Set the movement delay after collision
+  };
 }
